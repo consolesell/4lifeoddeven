@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deriv AI Trading Bot - Professional Edition</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Top Navigation Bar -->
+    <nav class="navbar">
+        <div class="nav-brand">
+            <span class="logo">🤖</span>
+            <span class="brand-text">Deriv AI Bot</span>
+        </div>
+        <div class="nav-links">
+            <button class="nav-btn active" data-view="dashboard">Dashboard</button>
+            <button class="nav-btn" data-view="models">Models</button>
+            <button class="nav-btn" data-view="history">History</button>
+            <button class="nav-btn" data-view="settings">Settings</button>
+        </div>
+        <div class="nav-controls">
+            <button id="themeToggle" class="icon-btn" title="Toggle Theme">🌓</button>
+            <button id="notificationsToggle" class="icon-btn" title="Toggle Notifications">🔔</button>
+        </div>
+    </nav>
+
+    <!-- Main Container -->
+    <div class="main-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="connection-panel">
+                <h3>Connection</h3>
+                <div class="input-group">
+                    <label for="appId">App ID</label>
+                    <input type="text" id="appId" value="1089" placeholder="Your App ID">
+                </div>
+                <div class="input-group">
+                    <label for="apiToken">API Token</label>
+                    <input type="password" id="apiToken" placeholder="Your API Token">
+                </div>
+                <div class="input-group">
+                    <label for="symbol">Symbol</label>
+                    <select id="symbol">
+                        <option value="R_10">Volatility 10 Index</option>
+                        <option value="R_25">Volatility 25 Index</option>
+                        <option value="R_50">Volatility 50 Index</option>
+                        <option value="R_75">Volatility 75 Index</option>
+                        <option value="R_100">Volatility 100 Index</option>
+                    </select>
+                </div>
+                <button id="connectBtn" class="btn btn-primary">Connect</button>
+                <div id="connectionStatus" class="status-badge disconnected">Disconnected</div>
+            </div>
+
+            <div class="trade-controls">
+                <h3>Trade Controls</h3>
+                <div class="input-group">
+                    <label for="baseStake">Base Stake ($)</label>
+                    <input type="number" id="baseStake" value="0.35" min="0.35" max="100" step="0.01">
+                </div>
+                <div class="input-group">
+                    <label for="minConfidence">Min Confidence (%)</label>
+                    <input type="range" id="minConfidence" min="50" max="100" value="60" step="5">
+                    <span id="minConfidenceValue">60%</span>
+                </div>
+                <div class="checkbox-group">
+                    <label>
+                        <input type="checkbox" id="autoTrade" checked>
+                        <span>Auto Trade</span>
+                    </label>
+                    <label>
+                        <input type="checkbox" id="simulationMode">
+                        <span>Simulation Mode</span>
+                    </label>
+                    <label>
+                        <input type="checkbox" id="adaptiveStaking">
+                        <span>Adaptive Staking</span>
+                    </label>
+                </div>
+                <button id="emergencyStop" class="btn btn-danger">Emergency Stop</button>
+            </div>
+
+            <div class="model-toggles">
+                <h3>Active Models</h3>
+                <label class="model-toggle">
+                    <input type="checkbox" id="modelStatistical" checked>
+                    <span>Statistical Probability</span>
+                </label>
+                <label class="model-toggle">
+                    <input type="checkbox" id="modelPattern" checked>
+                    <span>Pattern Recognition</span>
+                </label>
+                <label class="model-toggle">
+                    <input type="checkbox" id="modelRuleBased" checked>
+                    <span>Rule-Based</span>
+                </label>
+                <label class="model-toggle">
+                    <input type="checkbox" id="modelRL">
+                    <span>Reinforcement Learning</span>
+                </label>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="content-area">
+            <!-- Dashboard View -->
+            <div id="dashboardView" class="view-panel active">
+                <!-- Live Tick Display -->
+                <section class="card tick-display-card">
+                    <h2>Live Tick Stream</h2>
+                    <div class="tick-display">
+                        <div class="current-digit">
+                            <div class="digit-value" id="currentDigit">-</div>
+                            <div class="digit-label" id="digitLabel">Waiting...</div>
+                        </div>
+                        <div class="tick-info">
+                            <div class="info-item">
+                                <span class="label">Quote:</span>
+                                <span id="currentQuote">-</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="label">Time:</span>
+                                <span id="tickTime">-</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="label">Volatility:</span>
+                                <span id="volatility">-</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="digit-history" id="digitHistory"></div>
+                </section>
+
+                <!-- Prediction Panel -->
+                <section class="card prediction-card">
+                    <h2>AI Prediction Engine</h2>
+                    <div class="prediction-result">
+                        <div class="prediction-main">
+                            <div class="prediction-label">Next Prediction</div>
+                            <div class="prediction-value" id="predictionValue">-</div>
+                            <div class="confidence-bar">
+                                <div class="confidence-fill" id="confidenceFill"></div>
+                                <span class="confidence-text" id="confidenceText">0%</span>
+                            </div>
+                        </div>
+                        <div class="model-breakdown" id="modelBreakdown">
+                            <h4>Model Breakdown (XAI)</h4>
+                            <div id="modelVotes"></div>
+                        </div>
+                    </div>
+                    <div class="prediction-action">
+                        <button id="manualTrade" class="btn btn-success" disabled>Execute Trade</button>
+                        <div id="tradeReason" class="trade-reason"></div>
+                    </div>
+                </section>
+
+                <!-- Stats Grid -->
+                <section class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">📊</div>
+                        <div class="stat-content">
+                            <div class="stat-label">Total Trades</div>
+                            <div class="stat-value" id="totalTrades">0</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">✅</div>
+                        <div class="stat-content">
+                            <div class="stat-label">Wins</div>
+                            <div class="stat-value" id="winCount">0</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">❌</div>
+                        <div class="stat-content">
+                            <div class="stat-label">Losses</div>
+                            <div class="stat-value" id="lossCount">0</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">📈</div>
+                        <div class="stat-content">
+                            <div class="stat-label">Win Rate</div>
+                            <div class="stat-value" id="winRate">0%</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">💰</div>
+                        <div class="stat-content">
+                            <div class="stat-label">Total P&L</div>
+                            <div class="stat-value" id="totalPnL">$0.00</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">🎯</div>
+                        <div class="stat-content">
+                            <div class="stat-label">Accuracy</div>
+                            <div class="stat-value" id="accuracy">0%</div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Charts Section -->
+                <section class="charts-section">
+                    <div class="card chart-card">
+                        <h3>Tick Stream Chart</h3>
+                        <canvas id="tickChart"></canvas>
+                    </div>
+                    <div class="card chart-card">
+                        <h3>Model Performance</h3>
+                        <canvas id="modelChart"></canvas>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Models View -->
+            <div id="modelsView" class="view-panel">
+                <section class="card">
+                    <h2>Model Performance Analytics</h2>
+                    <div class="model-analytics" id="modelAnalytics"></div>
+                </section>
+                <section class="card">
+                    <h2>Model Configuration</h2>
+                    <div class="model-config" id="modelConfig"></div>
+                </section>
+            </div>
+
+            <!-- History View -->
+            <div id="historyView" class="view-panel">
+                <section class="card">
+                    <div class="history-header">
+                        <h2>Trade History</h2>
+                        <div class="history-controls">
+                            <button id="exportCSV" class="btn btn-secondary">Export CSV</button>
+                            <button id="clearHistory" class="btn btn-danger">Clear History</button>
+                        </div>
+                    </div>
+                    <div class="history-filters">
+                        <select id="filterType">
+                            <option value="all">All Trades</option>
+                            <option value="wins">Wins Only</option>
+                            <option value="losses">Losses Only</option>
+                        </select>
+                        <input type="date" id="filterDate" />
+                    </div>
+                    <div class="history-table-container">
+                        <table class="history-table">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Type</th>
+                                    <th>Stake</th>
+                                    <th>Prediction</th>
+                                    <th>Result</th>
+                                    <th>P&L</th>
+                                    <th>Confidence</th>
+                                </tr>
+                            </thead>
+                            <tbody id="historyTableBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="pagination" id="historyPagination"></div>
+                </section>
+            </div>
+
+            <!-- Settings View -->
+            <div id="settingsView" class="view-panel">
+                <section class="card">
+                    <h2>Bot Configuration</h2>
+                    <div class="settings-grid">
+                        <div class="setting-group">
+                            <h3>Risk Management</h3>
+                            <div class="input-group">
+                                <label>Max Daily Loss ($)</label>
+                                <input type="number" id="maxDailyLoss" value="50" min="0">
+                            </div>
+                            <div class="input-group">
+                                <label>Max Consecutive Losses</label>
+                                <input type="number" id="maxConsecLosses" value="5" min="1">
+                            </div>
+                            <div class="input-group">
+                                <label>Cooldown After Loss (seconds)</label>
+                                <input type="number" id="cooldownPeriod" value="5" min="0">
+                            </div>
+                        </div>
+                        <div class="setting-group">
+                            <h3>Strategy Settings</h3>
+                            <div class="input-group">
+                                <label>Strategy Type</label>
+                                <select id="strategyType">
+                                    <option value="conservative">Conservative</option>
+                                    <option value="moderate" selected>Moderate</option>
+                                    <option value="aggressive">Aggressive</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label>Model Weight Method</label>
+                                <select id="weightMethod">
+                                    <option value="equal">Equal Weight</option>
+                                    <option value="performance" selected>Performance-Based</option>
+                                    <option value="confidence">Confidence-Based</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                <section class="card">
+                    <h2>Data Management</h2>
+                    <div class="data-controls">
+                        <button id="backupData" class="btn btn-primary">Backup Data</button>
+                        <button id="restoreData" class="btn btn-secondary">Restore Data</button>
+                        <button id="resetAll" class="btn btn-danger">Reset All Data</button>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal for Alerts -->
+    <div id="alertModal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <div class="modal-icon" id="modalIcon"></div>
+            <h3 id="modalTitle"></h3>
+            <p id="modalMessage"></p>
+            <div class="modal-actions">
+                <button id="modalConfirm" class="btn btn-primary">OK</button>
+                <button id="modalCancel" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <p>Processing...</p>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="config.js"></script>
+    <script src="utils.js"></script>
+    <script src="storage.js"></script>
+    <script src="analysis.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
