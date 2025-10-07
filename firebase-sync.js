@@ -360,6 +360,77 @@ class FirebaseSync {
             emailEl.textContent = this.user.email;
         }
     }
+    /**
+ * Smart merge of local and remote data
+ */
+async smartMerge() {
+    if (!this.userRef) return false;
+    
+    try {
+        const snapshot = await this.userRef.once('value');
+        const remote = snapshot.val();
+        
+        if (!remote) {
+            await this.pushData();
+            return true;
+        }
+        
+        const local = {
+            trades: Storage.getTrades(),
+            performance: Storage.getPerformance()
+        };
+        
+        // Merge strategies
+        const mergedTrades = this.mergeTrades(local.trades, remote.trades);
+        const mergedPerformance = this.mergePerformance(local.performance, remote.performance);
+        
+        // Save merged data
+        Storage.setItem('trades', mergedTrades);
+        Storage.setItem('performance', mergedPerformance);
+        
+        // Push merged data back
+        await this.pushData();
+        
+        Utils.notify('Smart Merge', 'Data merged successfully', 'success');
+        return true;
+    } catch (error) {
+        console.error('Smart merge error:', error);
+        return false;
+    }
+}
+
+/**
+ * Merge trades (keep unique by ID)
+ */
+mergeTrades(local, remote) {
+    const merged = [...local];
+    const localIds = new Set(local.map(t => t.id));
+    
+    remote.forEach(trade => {
+        if (!localIds.has(trade.id)) {
+            merged.push(trade);
+        }
+    });
+    
+    // Sort by timestamp
+    return merged.sort((a, b) => a.timestamp - b.timestamp);
+}
+
+/**
+ * Merge performance (take better metrics)
+ */
+mergePerformance(local, remote) {
+    return {
+        totalTrades: local.totalTrades + remote.totalTrades,
+        wins: local.wins + remote.wins,
+        losses: local.losses + remote.losses,
+        totalPnL: local.totalPnL + remote.totalPnL,
+        winRate: ((local.wins + remote.wins) / (local.totalTrades + remote.totalTrades)) * 100,
+        profitFactor: Math.max(local.profitFactor, remote.profitFactor),
+        sharpeRatio: Math.max(local.sharpeRatio, remote.sharpeRatio),
+        maxDrawdown: Math.max(local.maxDrawdown, remote.maxDrawdown)
+    };
+}
 
     /**
      * Export backup to Firebase Storage (bonus feature)

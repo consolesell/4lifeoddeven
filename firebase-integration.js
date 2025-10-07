@@ -84,7 +84,13 @@ function setupFirebaseUI() {
         bot?.hideLoading();
         updateSyncTime();
     });
-    
+  
+    // In setupFirebaseUI()
+   document.getElementById('firebaseSmartMerge')?.addEventListener('click', async () => {
+       bot?.showLoading('Merging data...');
+       await firebaseSync.smartMerge();
+       bot?.hideLoading();
+   });
     // Backup
     document.getElementById('firebaseBackup')?.addEventListener('click', async () => {
         bot?.showLoading('Creating backup...');
@@ -145,6 +151,54 @@ function updateSyncTime() {
         syncTimeEl.textContent = `Last sync: ${time.toLocaleTimeString()}`;
     }
 }
+
+/**
+ * Show backups modal
+ */
+async function showBackupsModal() {
+    const backups = await firebaseSync.getBackups();
+    
+    if (backups.length === 0) {
+        Utils.notify('No Backups', 'No backups found', 'info');
+        return;
+    }
+    
+    let backupsList = '<div class="backups-list">';
+    backups.sort((a, b) => b.timestamp - a.timestamp).forEach(backup => {
+        backupsList += `
+            <div class="backup-item">
+                <div>
+                    <strong>${backup.date.toLocaleString()}</strong>
+                    <small>${(backup.size / 1024).toFixed(2)} KB</small>
+                </div>
+                <button onclick="restoreBackup(${backup.timestamp})" class="btn btn-sm btn-primary">
+                    Restore
+                </button>
+            </div>
+        `;
+    });
+    backupsList += '</div>';
+    
+    if (typeof bot !== 'undefined') {
+        bot.showModal('info', 'Available Backups', backupsList);
+    }
+}
+
+/**
+ * Restore specific backup
+ */
+async function restoreBackup(timestamp) {
+    bot?.hideModal();
+    bot?.showLoading('Restoring backup...');
+    await firebaseSync.restoreFromBackup(timestamp);
+    bot?.hideLoading();
+}
+
+// Add button to UI
+document.getElementById('firebaseBackup')?.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    showBackupsModal();
+});
 
 /**
  * Hook into bot events for automatic syncing
