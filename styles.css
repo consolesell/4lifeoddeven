@@ -416,6 +416,60 @@ body {
     font-weight: 500;
 }
 
+/* Firebase Sync Panel */
+.firebase-panel {
+    margin-top: 2rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.firebase-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.firebase-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.btn-sm {
+    padding: 0.5rem;
+    font-size: 0.75rem;
+}
+
+.firebase-info {
+    margin: 0.5rem 0;
+    padding: 0.5rem;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    text-align: center;
+}
+
+.firebase-info small {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+}
+
+.sync-status {
+    margin-top: 0.5rem;
+    text-align: center;
+}
+
+.sync-status small {
+    color: var(--text-tertiary);
+    font-size: 0.75rem;
+}
+
+#firebaseSyncSection.hidden,
+#firebaseAuthSection.hidden {
+    display: none;
+}
+
 /* Digit History */
 .digit-history {
     display: flex;

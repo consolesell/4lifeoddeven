@@ -7,6 +7,12 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+
     <!-- Top Navigation Bar -->
     <nav class="navbar">
         <div class="nav-brand">
@@ -225,6 +231,52 @@
                     <div class="model-config" id="modelConfig"></div>
                 </section>
             </div>
+            
+            <!-- Firebase Sync Panel -->
+<div class="firebase-panel">
+    <h3>☁️ Firebase Sync</h3>
+    
+    <div id="firebaseAuthSection">
+        <div class="input-group">
+            <label for="firebaseEmail">Email</label>
+            <input type="email" id="firebaseEmail" placeholder="your@email.com">
+        </div>
+        <div class="input-group">
+            <label for="firebasePassword">Password</label>
+            <input type="password" id="firebasePassword" placeholder="••••••••">
+        </div>
+        <div class="firebase-buttons">
+            <button id="firebaseSignIn" class="btn btn-primary">Sign In</button>
+            <button id="firebaseSignUp" class="btn btn-secondary">Sign Up</button>
+        </div>
+    </div>
+
+    <div id="firebaseSyncSection" class="hidden">
+        <div class="status-badge disconnected" id="firebaseStatus">Disconnected</div>
+        <div class="firebase-info">
+            <small id="firebaseEmailDisplay"></small>
+        </div>
+        <div class="firebase-controls">
+            <button id="firebasePush" class="btn btn-primary btn-sm">⬆️ Push</button>
+            <button id="firebasePull" class="btn btn-secondary btn-sm">⬇️ Pull</button>
+            <button id="firebaseBackup" class="btn btn-success btn-sm">💾 Backup</button>
+            <button id="firebaseSignOut" class="btn btn-danger btn-sm">Sign Out</button>
+        </div>
+        <div class="checkbox-group" style="margin-top: 10px;">
+            <label>
+                <input type="checkbox" id="firebaseAutoSync" checked>
+                <span>Auto-sync (1 min)</span>
+            </label>
+            <label>
+                <input type="checkbox" id="firebaseRealtime">
+                <span>Real-time sync</span>
+            </label>
+        </div>
+        <div class="sync-status">
+            <small id="lastSyncTime">Never synced</small>
+        </div>
+    </div>
+</div>
 
             <!-- History View -->
             <div id="historyView" class="view-panel">
@@ -345,5 +397,7 @@
     <script src="storage.js"></script>
     <script src="analysis.js"></script>
     <script src="script.js"></script>
+    <script src="firebase-sync.js"></script>
+    <script src="firebase-integration.js"></script>
 </body>
 </html>

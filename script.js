@@ -14,6 +14,21 @@ class DerivBot {
     this.dailyLoss = 0;
     this.emergencyStop = false;
     this.charts = {};
+    
+    // Reconnection properties
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = 10;
+    this.reconnectDelay = 1000; // Start with 1 second
+    this.maxReconnectDelay = 30000; // Max 30 seconds
+    this.reconnectTimer = null;
+    this.isReconnecting = false;
+    this.shouldReconnect = true;
+    this.lastAppId = null;
+    this.pingInterval = null;
+    this.pongTimeout = null;
+    this.connectionHealth = 100;
+    this.missedPongs = 0;
+    this.maxMissedPongs = 3;
 
     this.init();  
   }  
@@ -117,7 +132,7 @@ class DerivBot {
   }  
 
   /**  
-   * Connect to Deriv WebSocket  
+   * Connect to Deriv WebSocket with reconnection support
    */  
   async connect() {  
     const appId = document.getElementById('appId').value.trim();  
@@ -134,36 +149,305 @@ class DerivBot {
       return;  
     }  
 
+    // Store credentials for reconnection
+    this.lastAppId = appId;
+    this.authToken = token;
+    this.currentSymbol = symbol;
+    this.shouldReconnect = true;
+    
+    this.establishConnection();
+  }
+
+  /**
+   * Establish WebSocket connection
+   */
+  establishConnection() {
+    if (this.isReconnecting) {
+      Utils.log('Connection attempt already in progress', 'debug');
+      return;
+    }
+
+    this.isReconnecting = true;
     this.showLoading('Connecting to Deriv...');  
 
     try {  
-      const wsUrl = `${CONFIG.api.wsUrl}?app_id=${appId}`;  
+      const wsUrl = `${CONFIG.api.wsUrl}?app_id=${this.lastAppId}`;  
+      
+      // Close existing connection if any
+      if (this.ws) {
+        this.cleanupConnection();
+      }
+      
       this.ws = new WebSocket(wsUrl);  
 
       this.ws.onopen = () => {  
         Utils.log('WebSocket connected', 'info');  
-        this.authorize(token, symbol);  
+        this.onConnectionOpen();
       };  
 
       this.ws.onmessage = (msg) => this.handleMessage(msg);  
 
       this.ws.onerror = (error) => {  
         Utils.log('WebSocket error', 'error', error);  
-        this.hideLoading();  
-        this.showModal('error', 'Connection Error', 'Failed to connect to Deriv API');  
+        this.handleConnectionError(error);
       };  
 
-      this.ws.onclose = () => {  
-        Utils.log('WebSocket closed', 'info');  
-        this.handleDisconnect();  
+      this.ws.onclose = (event) => {  
+        Utils.log('WebSocket closed', 'info', { 
+          code: event.code, 
+          reason: event.reason,
+          wasClean: event.wasClean 
+        });  
+        this.handleConnectionClose(event);
       };  
 
     } catch (error) {  
       Utils.log('Connection failed', 'error', error);  
       this.hideLoading();  
-      this.showModal('error', 'Connection Error', error.message);  
+      this.handleConnectionError(error);
     }  
-  }  
+  }
+
+  /**
+   * Handle successful connection
+   */
+  onConnectionOpen() {
+    this.isReconnecting = false;
+    this.reconnectAttempts = 0;
+    this.reconnectDelay = 1000;
+    this.connectionHealth = 100;
+    this.missedPongs = 0;
+    
+    // Clear any reconnection timer
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    
+    // Start connection health monitoring
+    this.startHeartbeat();
+    
+    // Authorize
+    this.authorize(this.authToken, this.currentSymbol);
+    
+    Utils.log('Connection established successfully', 'info');
+  }
+
+  /**
+   * Handle connection error
+   */
+  handleConnectionError(error) {
+    this.hideLoading();
+    this.connectionHealth = Math.max(0, this.connectionHealth - 20);
+    
+    if (!this.shouldReconnect || this.emergencyStop) {
+      this.showModal('error', 'Connection Error', 'Failed to connect to Deriv API');
+      return;
+    }
+    
+    this.attemptReconnection('Connection error occurred');
+  }
+
+  /**
+   * Handle connection close
+   */
+  handleConnectionClose(event) {
+    this.isReconnecting = false;
+    this.stopHeartbeat();
+    
+    // Don't reconnect if it was a clean close or emergency stop
+    if (event.wasClean || !this.shouldReconnect || this.emergencyStop) {
+      this.handleDisconnect();
+      return;
+    }
+    
+    // Determine if we should attempt reconnection
+    const shouldAttemptReconnect = 
+      event.code !== 1000 && // Normal closure
+      event.code !== 1001 && // Going away
+      this.reconnectAttempts < this.maxReconnectAttempts;
+    
+    if (shouldAttemptReconnect) {
+      this.attemptReconnection(`Connection closed (code: ${event.code})`);
+    } else {
+      this.handleDisconnect();
+      if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+        this.showModal('error', 'Connection Failed', 
+          `Failed to reconnect after ${this.maxReconnectAttempts} attempts. Please check your connection and try again.`);
+      }
+    }
+  }
+
+  /**
+   * Attempt to reconnect with exponential backoff
+   */
+  attemptReconnection(reason) {
+    if (!this.shouldReconnect || this.emergencyStop) {
+      return;
+    }
+    
+    this.reconnectAttempts++;
+    
+    // Calculate delay with exponential backoff and jitter
+    const baseDelay = Math.min(
+      this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1),
+      this.maxReconnectDelay
+    );
+    const jitter = Math.random() * 1000; // Add up to 1 second of jitter
+    const delay = baseDelay + jitter;
+    
+    Utils.log(
+      `Reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${Math.round(delay/1000)}s`, 
+      'warn',
+      { reason }
+    );
+    
+    // Update UI with reconnection status
+    this.updateConnectionStatus(`Reconnecting... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+    
+    // Show notification for first reconnection attempt
+    if (this.reconnectAttempts === 1) {
+      Utils.notify('Connection Lost', 'Attempting to reconnect...', 'warning');
+    }
+    
+    // Clear existing timer
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+    }
+    
+    // Schedule reconnection
+    this.reconnectTimer = setTimeout(() => {
+      Utils.log(`Executing reconnection attempt ${this.reconnectAttempts}`, 'info');
+      this.establishConnection();
+    }, delay);
+  }
+
+  /**
+   * Start heartbeat/ping mechanism
+   */
+  startHeartbeat() {
+    this.stopHeartbeat();
+    
+    // Send ping every 30 seconds
+    this.pingInterval = setInterval(() => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.sendPing();
+      }
+    }, 30000);
+    
+    Utils.log('Heartbeat monitoring started', 'debug');
+  }
+
+  /**
+   * Stop heartbeat monitoring
+   */
+  stopHeartbeat() {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+    
+    if (this.pongTimeout) {
+      clearTimeout(this.pongTimeout);
+      this.pongTimeout = null;
+    }
+  }
+
+  /**
+   * Send ping to server
+   */
+  sendPing() {
+    try {
+      this.sendMessage({ ping: 1 });
+      
+      // Set timeout for pong response
+      this.pongTimeout = setTimeout(() => {
+        this.missedPongs++;
+        this.connectionHealth = Math.max(0, this.connectionHealth - 15);
+        
+        Utils.log(`Missed pong response (${this.missedPongs}/${this.maxMissedPongs})`, 'warn');
+        
+        if (this.missedPongs >= this.maxMissedPongs) {
+          Utils.log('Connection appears unhealthy, forcing reconnection', 'error');
+          this.forceReconnect('Too many missed pong responses');
+        }
+      }, 10000); // Wait 10 seconds for pong
+      
+    } catch (error) {
+      Utils.log('Failed to send ping', 'error', error);
+    }
+  }
+
+  /**
+   * Handle pong response
+   */
+  handlePong() {
+    if (this.pongTimeout) {
+      clearTimeout(this.pongTimeout);
+      this.pongTimeout = null;
+    }
+    
+    this.missedPongs = 0;
+    this.connectionHealth = Math.min(100, this.connectionHealth + 5);
+    
+    Utils.log('Pong received, connection healthy', 'debug');
+  }
+
+  /**
+   * Force reconnection
+   */
+  forceReconnect(reason) {
+    Utils.log('Forcing reconnection', 'warn', { reason });
+    
+    this.cleanupConnection();
+    
+    if (this.shouldReconnect && !this.emergencyStop) {
+      this.attemptReconnection(reason);
+    }
+  }
+
+  /**
+   * Cleanup connection resources
+   */
+  cleanupConnection() {
+    this.stopHeartbeat();
+    
+    if (this.ws) {
+      try {
+        this.ws.onopen = null;
+        this.ws.onmessage = null;
+        this.ws.onerror = null;
+        this.ws.onclose = null;
+        
+        if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+          this.ws.close(1000, 'Client cleanup');
+        }
+      } catch (error) {
+        Utils.log('Error during connection cleanup', 'error', error);
+      }
+      
+      this.ws = null;
+    }
+  }
+
+  /**
+   * Update connection status in UI
+   */
+  updateConnectionStatus(status) {
+    const statusEl = document.getElementById('connectionStatus');
+    if (statusEl) {
+      statusEl.textContent = status;
+      
+      // Update class based on connection health
+      if (this.connectionHealth > 70) {
+        statusEl.className = 'status-badge connected';
+      } else if (this.connectionHealth > 30) {
+        statusEl.className = 'status-badge warning';
+      } else {
+        statusEl.className = 'status-badge disconnected';
+      }
+    }
+  }
 
   /**  
    * Authorize with API token  
@@ -202,7 +486,10 @@ class DerivBot {
           break;  
         case 'proposal_open_contract':  
           this.handleContractUpdate(data);  
-          break;  
+          break;
+        case 'ping':
+          this.handlePong();
+          break;
         default:  
           Utils.log(`Unhandled message type: ${data.msg_type}`, 'debug');  
       }  
@@ -222,12 +509,17 @@ class DerivBot {
     Utils.notify('Connected', 'Successfully connected to Deriv', 'success');  
 
     // Update UI  
-    document.getElementById('connectionStatus').textContent = 'Connected';  
-    document.getElementById('connectionStatus').className = 'status-badge connected';  
+    this.updateConnectionStatus('Connected');
     document.getElementById('connectBtn').disabled = true;  
 
     // Subscribe to ticks  
-    this.subscribeTicks(this.currentSymbol);  
+    this.subscribeTicks(this.currentSymbol);
+    
+    // Notify successful reconnection if this was a reconnect
+    if (this.reconnectAttempts > 0) {
+      Utils.notify('Reconnected', 'Connection restored successfully', 'success');
+      this.reconnectAttempts = 0;
+    }
   }  
 
   /**  
@@ -346,6 +638,12 @@ class DerivBot {
    * Execute trade  
    */  
   async executeTrade(prediction) {  
+    // Check if connected
+    if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      Utils.log('Cannot execute trade: not connected', 'warn');
+      return;
+    }
+    
     // Check risk management rules  
     if (!this.checkRiskManagement()) {  
       Utils.log('Trade blocked by risk management', 'warn');  
@@ -599,7 +897,7 @@ class DerivBot {
 
     // Check consecutive losses  
     if (this.consecutiveLosses >= CONFIG.risk.maxConsecutiveLosses) {  
-      this.showModal('warning', 'Risk Limit Reached',   
+      this.showModal('warning','Risk Limit Reached',   
         `Max consecutive losses (${CONFIG.risk.maxConsecutiveLosses}) reached. Trading paused.`);  
       CONFIG.trading.autoTrade = false;  
       document.getElementById('autoTrade').checked = false;  
@@ -623,6 +921,7 @@ class DerivBot {
    */  
   handleEmergencyStop() {  
     this.emergencyStop = true;  
+    this.shouldReconnect = false;
     CONFIG.trading.autoTrade = false;  
     document.getElementById('autoTrade').checked = false;  
       
@@ -630,8 +929,26 @@ class DerivBot {
       'All trading has been stopped. Reconnect to resume.');  
       
     Utils.notify('Emergency Stop', 'Trading stopped by user', 'warning');  
-    Utils.log('Emergency stop activated', 'warn');  
+    Utils.log('Emergency stop activated', 'warn');
+    
+    // Disconnect WebSocket
+    this.disconnect();
   }  
+
+  /**
+   * Manual disconnect
+   */
+  disconnect() {
+    this.shouldReconnect = false;
+    
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    
+    this.cleanupConnection();
+    this.handleDisconnect();
+  }
 
   /**  
    * Update stats display  
@@ -777,14 +1094,29 @@ class DerivBot {
   }  
 
   /**  
-   * Send message through WebSocket  
+   * Send message through WebSocket with retry capability
    */  
   sendMessage(message) {  
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {  
-      this.ws.send(JSON.stringify(message));  
-      Utils.log('Sent message', 'debug', message);  
+      try {
+        this.ws.send(JSON.stringify(message));  
+        Utils.log('Sent message', 'debug', message);
+      } catch (error) {
+        Utils.log('Failed to send message', 'error', error);
+        
+        // Check if we need to reconnect
+        if (this.shouldReconnect && !this.emergencyStop) {
+          this.forceReconnect('Failed to send message');
+        }
+      }
     } else {  
-      Utils.log('WebSocket not connected', 'error');  
+      Utils.log('WebSocket not connected, cannot send message', 'warn');
+      
+      // Attempt to reconnect if appropriate
+      if (this.shouldReconnect && !this.emergencyStop && !this.isReconnecting) {
+        Utils.log('Attempting to reconnect to send message', 'info');
+        this.attemptReconnection('WebSocket not connected');
+      }
     }  
   }  
 
@@ -794,13 +1126,22 @@ class DerivBot {
   handleDisconnect() {  
     this.isConnected = false;  
     this.isTrading = false;  
-    this.emergencyStop = false;  
+    
+    if (!this.emergencyStop) {
+      this.emergencyStop = false;
+    }
 
-    document.getElementById('connectionStatus').textContent = 'Disconnected';  
-    document.getElementById('connectionStatus').className = 'status-badge disconnected';  
+    this.updateConnectionStatus('Disconnected');
     document.getElementById('connectBtn').disabled = false;  
 
     Utils.notify('Disconnected', 'Connection to Deriv closed', 'info');  
+    
+    // Disable auto-trading when disconnected
+    if (CONFIG.trading.autoTrade) {
+      CONFIG.trading.autoTrade = false;
+      document.getElementById('autoTrade').checked = false;
+      Utils.log('Auto-trading disabled due to disconnection', 'warn');
+    }
   }  
 
   /**  
@@ -811,8 +1152,17 @@ class DerivBot {
     this.showModal('error', 'API Error', error.message);  
       
     if (error.code === 'InvalidToken') {  
+      this.shouldReconnect = false;
       this.handleDisconnect();  
-    }  
+    } else if (error.code === 'DisconnectClientError') {
+      // Server is asking us to disconnect
+      this.shouldReconnect = false;
+      this.disconnect();
+    } else if (error.code === 'RateLimit') {
+      // Rate limited - wait before reconnecting
+      Utils.log('Rate limited, will retry after delay', 'warn');
+      this.reconnectDelay = Math.max(this.reconnectDelay, 5000);
+    }
   }  
 
   /**  
@@ -1071,15 +1421,48 @@ class DerivBot {
     } else { 
       document.querySelector('.brand-text').textContent = 'Deriv AI Bot'; 
     } 
+    
+    // Update connection health indicator if element exists
+    const healthIndicator = document.getElementById('connectionHealth');
+    if (healthIndicator) {
+      healthIndicator.textContent = `${this.connectionHealth}%`;
+      healthIndicator.style.color = this.connectionHealth > 70 ? '#10b981' : 
+                                    this.connectionHealth > 30 ? '#f59e0b' : '#ef4444';
+    }
   } 
+
+  /**
+   * Get connection status info
+   */
+  getConnectionStatus() {
+    return {
+      isConnected: this.isConnected,
+      isReconnecting: this.isReconnecting,
+      reconnectAttempts: this.reconnectAttempts,
+      maxReconnectAttempts: this.maxReconnectAttempts,
+      connectionHealth: this.connectionHealth,
+      shouldReconnect: this.shouldReconnect,
+      wsReadyState: this.ws ? this.ws.readyState : null
+    };
+  }
 
   /** 
    * Cleanup and destroy 
    */ 
-  destroy() { 
-    if (this.ws) { 
-      this.ws.close(); 
-    } 
+  destroy() {
+    Utils.log('Destroying bot instance', 'info');
+    
+    // Disable reconnection
+    this.shouldReconnect = false;
+    
+    // Clear timers
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    
+    // Cleanup connection
+    this.cleanupConnection();
 
     // Destroy charts 
     Object.values(this.charts).forEach(chart => { 
@@ -1089,10 +1472,12 @@ class DerivBot {
     Utils.log('Bot destroyed', 'info'); 
   } 
 } 
+
 // Initialize bot when DOM is ready 
 let bot; 
 document.addEventListener('DOMContentLoaded', () => { 
   bot = new DerivBot(); 
+  
   // Auto-save settings periodically 
   setInterval(() => { 
     Storage.saveSettings(CONFIG); 
@@ -1114,8 +1499,21 @@ document.addEventListener('DOMContentLoaded', () => {
       bot.dailyLoss = 0;   
     }, 86400000); // 24 hours 
 
-  }, msUntilMidnight); 
+  }, msUntilMidnight);
+  
+  // Monitor connection health and display
+  setInterval(() => {
+    if (bot) {
+      bot.updateUI();
+      
+      // Log connection status periodically for debugging
+      if (bot.isConnected) {
+        Utils.log('Connection health check', 'debug', bot.getConnectionStatus());
+      }
+    }
+  }, 10000); // Every 10 seconds
 }); 
+
 // Cleanup on page unload 
 window.addEventListener('beforeunload', () => { 
   if (bot) { 
@@ -1123,14 +1521,47 @@ window.addEventListener('beforeunload', () => {
     bot.destroy(); 
   } 
 }); 
+
 // Handle visibility change (pause when tab is hidden) 
 document.addEventListener('visibilitychange', () => { 
   if (document.hidden) { 
-    Utils.log('Tab hidden - consider pausing trades', 'info'); 
+    Utils.log('Tab hidden - connection maintained but consider pausing trades', 'info'); 
   } else { 
     Utils.log('Tab visible - resuming', 'info'); 
+    
+    // Check connection health when tab becomes visible again
+    if (bot && bot.isConnected && bot.ws) {
+      if (bot.ws.readyState !== WebSocket.OPEN) {
+        Utils.log('Connection lost while tab was hidden, attempting reconnect', 'warn');
+        bot.forceReconnect('Tab regained focus, connection lost');
+      }
+    }
   } 
 }); 
+
+// Handle online/offline events
+window.addEventListener('online', () => {
+  Utils.log('Network connection restored', 'info');
+  Utils.notify('Online', 'Network connection restored', 'success');
+  
+  if (bot && !bot.isConnected && bot.shouldReconnect && !bot.emergencyStop) {
+    Utils.log('Attempting to reconnect after network restoration', 'info');
+    setTimeout(() => {
+      bot.attemptReconnection('Network connection restored');
+    }, 1000);
+  }
+});
+
+window.addEventListener('offline', () => {
+  Utils.log('Network connection lost', 'warn');
+  Utils.notify('Offline', 'Network connection lost', 'error');
+  
+  if (bot && bot.isConnected) {
+    bot.connectionHealth = 0;
+    bot.updateUI();
+  }
+});
+
 // Global error handler 
 window.addEventListener('error', (event) => { 
   Utils.log('Global error caught', 'error', { 
@@ -1140,10 +1571,12 @@ window.addEventListener('error', (event) => {
     colno: event.colno 
   }); 
 }); 
+
 // Unhandled promise rejection handler 
 window.addEventListener('unhandledrejection', (event) => { 
   Utils.log('Unhandled promise rejection', 'error', event.reason); 
 }); 
+
 // Export bot instance for debugging 
 if (typeof window !== 'undefined') { 
   window.DerivBot = bot; 
