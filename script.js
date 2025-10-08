@@ -674,7 +674,7 @@ class DerivBot {
     }  
 
     // Send buy request  
-    const contractType = prediction.finalPrediction === 'EVEN' ? 'DIGITEVEN' : 'DIGITODD';  
+    const contractType = prediction.finalPrediction === 'EVEN' ? 'DIGITODD' : 'DIGITEVEN';  
       
     this.showLoading('Placing trade...');  
 
