@@ -24,7 +24,7 @@ const Analysis = {
         });
 
         // Fuse predictions using decision engine
-        return this.fuseDecisions(predictions);
+        return this.fuseDecisions(predictions, ticks);
     },
 
     /**
@@ -376,7 +376,7 @@ const Analysis = {
     /**
      * Decision Engine: Fuse predictions from all models
      */
-    fuseDecisions(predictions) {
+    fuseDecisions(predictions, ticks) {
         if (predictions.length === 0) {
             return {
                 finalPrediction: null,
@@ -432,13 +432,31 @@ const Analysis = {
             }
         }
 
+        // Predict dynamic duration based on volatility
+        const volatility = Utils.calculateVolatility(ticks, 50);
+        let duration = 1;
+        if (volatility < 0.3) {
+            duration = 10;
+        } else if (volatility < 0.5) {
+            duration = 7;
+        } else if (volatility < 0.7) {
+            duration = 5;
+        } else if (volatility < 0.9) {
+            duration = 3;
+        } else {
+            duration = 1;
+        }
+
+        reason += `, duration: ${duration} ticks based on volatility ${(volatility * 100).toFixed(2)}%`;
+
         return {
             finalPrediction,
             confidence,
             shouldTrade,
             reason,
             modelBreakdown: predictions,
-            scores: { evenScore, oddScore }
+            scores: { evenScore, oddScore },
+            duration
         };
     },
 
@@ -539,13 +557,13 @@ const Analysis = {
             losses,
             winRate: (wins / filteredTrades.length) * 100,
             profitFactor: grossLoss > 0 ? grossProfit / grossLoss : 0,
-grossProfit,
-grossLoss,
-totalPnL: grossProfit - grossLoss,
-avgWin: wins > 0 ? grossProfit / wins : 0,
-avgLoss: losses > 0 ? grossLoss / losses : 0
-};
-}
+            grossProfit,
+            grossLoss,
+            totalPnL: grossProfit - grossLoss,
+            avgWin: wins > 0 ? grossProfit / wins : 0,
+            avgLoss: losses > 0 ? grossLoss / losses : 0
+        };
+    }
 };
 // Initialize analysis engine
 if (typeof window !== 'undefined') {
