@@ -135,19 +135,25 @@ const Utils = {
     },
 
     /**
-     * Calculate volatility from tick data
+     * Calculate volatility from tick data (enhanced for digit-based trading)
      */
-    calculateVolatility(ticks, period = 20) {
+    calculateVolatility(ticks, period = 50) {
         if (ticks.length < period) return 0;
         const recentTicks = ticks.slice(-period);
-        const returns = [];
+        let flips = 0;
         
         for (let i = 1; i < recentTicks.length; i++) {
-            const ret = (recentTicks[i].quote - recentTicks[i - 1].quote) / recentTicks[i - 1].quote;
-            returns.push(ret);
+            if (recentTicks[i].isEven !== recentTicks[i - 1].isEven) {
+                flips++;
+            }
         }
         
-        return this.calculateStdDev(returns);
+        const flipRate = flips / (period - 1);
+        // Log for debugging
+        if (CONFIG.logging.level === 'debug') {
+            console.log(`Volatility calculation: flips=${flips}, period=${period}, flipRate=${flipRate.toFixed(4)}`);
+        }
+        return flipRate;
     },
 
     /**
@@ -186,6 +192,10 @@ const Utils = {
         if (winRate <= 0 || winRate >= 1) return 0;
         const q = 1 - winRate;
         const kelly = (winRate * profitFactor - q) / profitFactor;
+        // Log for debugging
+        if (CONFIG.logging.level === 'debug') {
+            console.log(`Kelly calculation: winRate=${winRate}, profitFactor=${profitFactor}, edge=${edge}, kelly=${kelly.toFixed(4)}`);
+        }
         return Math.max(0, Math.min(kelly, 0.25)); // Cap at 25% of bankroll
     },
 
