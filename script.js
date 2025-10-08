@@ -15,15 +15,6 @@ class DerivBot {
     this.emergencyStop = false;
     this.charts = {};
     
-    // Martingale properties
-    this.initialStake = CONFIG.trading.baseStake;
-    this.currentStake = CONFIG.trading.baseStake;
-    this.martingaleMultiplier = 2.0; // Double stake after loss
-    this.martingaleResetThreshold = 4; // Reset after 4 consecutive losses
-    this.martingaleEnabled = true; // Can be toggled
-    this.martingaleHistory = [];
-    this.consecutiveWins = 0;
-    
     // Reconnection properties
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 10;
@@ -50,6 +41,8 @@ class DerivBot {
     this.setupEventListeners();  
     this.setupCharts();  
     this.loadSavedSettings();  
+    CONFIG.trading.martingaleFactor = CONFIG.trading.martingaleFactor || 2.0;
+    CONFIG.trading.maxMartingaleStreak = CONFIG.trading.maxMartingaleStreak || 3;
     this.updateUI();  
     Utils.requestNotificationPermission();  
     Utils.log('Deriv Bot ready', 'info');  
@@ -102,24 +95,9 @@ class DerivBot {
     document.getElementById('baseStake').addEventListener('change', (e) => {  
       const stake = parseFloat(e.target.value);  
       if (Utils.validateStake(stake)) {  
-        CONFIG.trading.baseStake = stake;
-        this.initialStake = stake;
-        this.currentStake = stake;
-        this.resetMartingale();
+        CONFIG.trading.baseStake = stake;  
       }  
     });  
-
-    // Martingale toggle (if you want to add a UI control for this)
-    const martingaleToggle = document.getElementById('martingaleEnabled');
-    if (martingaleToggle) {
-      martingaleToggle.addEventListener('change', (e) => {
-        this.martingaleEnabled = e.target.checked;
-        if (!this.martingaleEnabled) {
-          this.resetMartingale();
-        }
-        Utils.log(`Martingale ${this.martingaleEnabled ? 'enabled' : 'disabled'}`, 'info');
-      });
-    }
 
     // Model toggles  
     ['statistical', 'pattern', 'ruleBased', 'RL'].forEach(model => {  
@@ -155,167 +133,6 @@ class DerivBot {
     document.getElementById('modalCancel')?.addEventListener('click', () => this.hideModal());  
   }  
 
-  /**
-   * Reset martingale to initial stake
-   */
-  resetMartingale() {
-    this.currentStake = this.initialStake;
-    this.consecutiveLosses = 0;
-    this.consecutiveWins = 0;
-    Utils.log(`Martingale reset. Current stake: ${Utils.formatCurrency(this.currentStake)}`, 'info');
-    this.updateMartingaleDisplay();
-  }
-
-  /**
-   * Apply martingale after loss
-   */
-  applyMartingaleAfterLoss() {
-    if (!this.martingaleEnabled) {
-      return;
-    }
-
-    this.consecutiveLosses++;
-    this.consecutiveWins = 0;
-
-    // Check if we need to reset after threshold
-    if (this.consecutiveLosses >= this.martingaleResetThreshold) {
-      Utils.log(`Martingale threshold reached (${this.martingaleResetThreshold} losses). Resetting to base stake.`, 'warn');
-      Utils.notify('Martingale Reset', `Stake reset to ${Utils.formatCurrency(this.initialStake)} after ${this.martingaleResetThreshold} losses`, 'warning');
-      this.resetMartingale();
-      return;
-    }
-
-    // Calculate new stake with martingale multiplier
-    const previousStake = this.currentStake;
-    this.currentStake = this.currentStake * this.martingaleMultiplier;
-
-    // Enforce maximum stake limit
-    if (this.currentStake > CONFIG.trading.maxStake) {
-      this.currentStake = CONFIG.trading.maxStake;
-      Utils.log('Martingale stake capped at maximum allowed stake', 'warn');
-    }
-
-    // Log martingale progression
-    this.martingaleHistory.push({
-      timestamp: Date.now(),
-      consecutiveLosses: this.consecutiveLosses,
-      previousStake: previousStake,
-      newStake: this.currentStake,
-      multiplier: this.martingaleMultiplier
-    });
-
-    Utils.log(`Martingale applied. Loss #${this.consecutiveLosses}. Stake: ${Utils.formatCurrency(previousStake)} → ${Utils.formatCurrency(this.currentStake)}`, 'warn');
-    Utils.notify('Martingale Active', `Stake increased to ${Utils.formatCurrency(this.currentStake)} (Loss #${this.consecutiveLosses})`, 'warning');
-    
-    this.updateMartingaleDisplay();
-  }
-
-  /**
-   * Handle win - reset martingale
-   */
-  handleMartingaleAfterWin() {
-    if (this.consecutiveLosses > 0) {
-      const recoveredAmount = this.calculateRecoveredAmount();
-      Utils.log(`Martingale recovery successful! Recovered from ${this.consecutiveLosses} losses. Amount recovered: ${Utils.formatCurrency(recoveredAmount)}`, 'success');
-      Utils.notify('Martingale Recovery', `Successfully recovered from ${this.consecutiveLosses} consecutive losses!`, 'success');
-    }
-
-    this.consecutiveWins++;
-    this.resetMartingale();
-  }
-
-  /**
-   * Calculate amount recovered with martingale
-   */
-  calculateRecoveredAmount() {
-    if (this.martingaleHistory.length === 0) {
-      return 0;
-    }
-
-    // Sum all losses from the streak
-    let totalLoss = 0;
-    for (let i = 0; i < this.consecutiveLosses; i++) {
-      if (this.martingaleHistory[i]) {
-        totalLoss += this.martingaleHistory[i].previousStake;
-      }
-    }
-
-    // Current stake payout minus total losses
-    const currentPayout = this.currentStake * 1.95; // Assuming 95% payout
-    return currentPayout - totalLoss - this.currentStake;
-  }
-
-  /**
-   * Update martingale display in UI
-   */
-  updateMartingaleDisplay() {
-    // Update current stake display
-    const currentStakeEl = document.getElementById('currentStakeDisplay');
-    if (currentStakeEl) {
-      currentStakeEl.textContent = Utils.formatCurrency(this.currentStake);
-      
-      // Highlight if martingale is active
-      if (this.consecutiveLosses > 0) {
-        currentStakeEl.style.color = '#f59e0b';
-        currentStakeEl.style.fontWeight = 'bold';
-      } else {
-        currentStakeEl.style.color = '';
-        currentStakeEl.style.fontWeight = '';
-      }
-    }
-
-    // Update martingale status
-    const martingaleStatusEl = document.getElementById('martingaleStatus');
-    if (martingaleStatusEl) {
-      if (this.consecutiveLosses > 0) {
-        martingaleStatusEl.textContent = `Active (Loss #${this.consecutiveLosses}/${this.martingaleResetThreshold})`;
-        martingaleStatusEl.className = 'status-badge warning';
-      } else {
-        martingaleStatusEl.textContent = 'Inactive';
-        martingaleStatusEl.className = 'status-badge';
-      }
-    }
-
-    // Update consecutive losses display
-    const lossStreakEl = document.getElementById('lossStreak');
-    if (lossStreakEl) {
-      lossStreakEl.textContent = this.consecutiveLosses;
-      if (this.consecutiveLosses >= 3) {
-        lossStreakEl.style.color = '#ef4444';
-      } else if (this.consecutiveLosses >= 2) {
-        lossStreakEl.style.color = '#f59e0b';
-      } else {
-        lossStreakEl.style.color = '';
-      }
-    }
-
-    // Update next stake preview
-    const nextStakeEl = document.getElementById('nextStakePreview');
-    if (nextStakeEl) {
-      const nextStake = this.consecutiveLosses > 0 && this.consecutiveLosses < this.martingaleResetThreshold - 1
-        ? Math.min(this.currentStake * this.martingaleMultiplier, CONFIG.trading.maxStake)
-        : this.initialStake;
-      nextStakeEl.textContent = Utils.formatCurrency(nextStake);
-    }
-  }
-
-  /**
-   * Get martingale statistics
-   */
-  getMartingaleStats() {
-    return {
-      enabled: this.martingaleEnabled,
-      initialStake: this.initialStake,
-      currentStake: this.currentStake,
-      consecutiveLosses: this.consecutiveLosses,
-      consecutiveWins: this.consecutiveWins,
-      multiplier: this.martingaleMultiplier,
-      resetThreshold: this.martingaleResetThreshold,
-      historyLength: this.martingaleHistory.length,
-      isActive: this.consecutiveLosses > 0
-    };
-  }
-
   /**  
    * Connect to Deriv WebSocket with reconnection support
    */  
@@ -339,9 +156,6 @@ class DerivBot {
     this.authToken = token;
     this.currentSymbol = symbol;
     this.shouldReconnect = true;
-    
-    // Reset martingale on new connection
-    this.resetMartingale();
     
     this.establishConnection();
   }
@@ -823,7 +637,7 @@ class DerivBot {
   }  
 
   /**  
-   * Execute trade with martingale stake
+   * Execute trade  
    */  
   async executeTrade(prediction) {  
     // Check if connected
@@ -845,17 +659,12 @@ class DerivBot {
       return;  
     }  
 
-    // Use current stake (which includes martingale)
-    let stake = this.currentStake;
-
-    // Apply adaptive staking if enabled (but not if martingale is active)
-    if (CONFIG.trading.adaptiveStaking && this.consecutiveLosses === 0) {
-      stake = this.calculateAdaptiveStake();
-    }
+    // Calculate stake  
+    const stake = this.calculateStake();  
 
     if (!Utils.validateStake(stake)) {  
       Utils.log('Invalid stake amount', 'error');  
-      return;
+      return;  
     }  
 
     // Simulation mode  
@@ -886,12 +695,7 @@ class DerivBot {
       });  
 
       this.lastTradeTime = now;  
-      Utils.log('Trade executed', 'info', { 
-        prediction: prediction.finalPrediction, 
-        stake,
-        martingaleActive: this.consecutiveLosses > 0,
-        consecutiveLosses: this.consecutiveLosses
-      });  
+      Utils.log('Trade executed', 'info', { prediction: prediction.finalPrediction, stake });  
 
     } catch (error) {  
       this.hideLoading();  
@@ -929,12 +733,7 @@ class DerivBot {
 
     if (data.buy) {  
       Utils.log('Contract purchased', 'info', data.buy);  
-      
-      const martingaleInfo = this.consecutiveLosses > 0 
-        ? ` (Martingale: Loss #${this.consecutiveLosses})`
-        : '';
-      
-      Utils.notify('Trade Placed', `Contract ID: ${data.buy.contract_id}${martingaleInfo}`, 'success');  
+      Utils.notify('Trade Placed', `Contract ID: ${data.buy.contract_id}`, 'success');  
       Utils.playSound('success');  
 
       // Subscribe to contract updates  
@@ -958,7 +757,7 @@ class DerivBot {
   }  
 
   /**  
-   * Handle contract settlement with martingale logic
+   * Handle contract settlement  
    */  
   handleContractSettlement(contract) {  
     const stake = parseFloat(contract.buy_price);  
@@ -966,7 +765,7 @@ class DerivBot {
     const profit = payout - stake;  
     const result = profit > 0 ? 'win' : 'loss';  
 
-    // Save trade with martingale info
+    // Save trade  
     const trade = {  
       contractId: contract.contract_id,  
       contractType: contract.contract_type,  
@@ -976,20 +775,17 @@ class DerivBot {
       result,  
       prediction: contract.contract_type.includes('EVEN') ? 'EVEN' : 'ODD',  
       actualDigit: contract.exit_tick,  
-      confidence: parseFloat(document.getElementById('confidenceText').textContent) / 100,
-      martingaleActive: this.consecutiveLosses > 0,
-      martingaleLevel: this.consecutiveLosses,
-      initialStake: this.initialStake
+      confidence: parseFloat(document.getElementById('confidenceText').textContent) / 100  
     };  
 
     Storage.saveTrade(trade);  
 
-    // Apply martingale logic based on result
+    // Update consecutive losses  
     if (result === 'loss') {  
-      this.dailyLoss += stake;
-      this.applyMartingaleAfterLoss();
+      this.consecutiveLosses++;  
+      this.dailyLoss += stake;  
     } else {  
-      this.handleMartingaleAfterWin();
+      this.consecutiveLosses = 0;  
     }  
 
     // Update RL model if enabled  
@@ -1005,18 +801,12 @@ class DerivBot {
     this.updateStatsDisplay();  
     this.updateHistoryTable();  
 
-    // Enhanced notifications with martingale info
+    // Notifications  
     if (result === 'win') {  
-      const martingaleMsg = trade.martingaleActive 
-        ? ` (Recovered from ${trade.martingaleLevel} losses!)` 
-        : '';
-      Utils.notify('Trade Won! 🎉', `Profit: ${Utils.formatCurrency(profit)}${martingaleMsg}`, 'success');  
+      Utils.notify('Trade Won! 🎉', `Profit: ${Utils.formatCurrency(profit)}`, 'success');  
       Utils.playSound('success');  
     } else {  
-      const martingaleMsg = this.consecutiveLosses < this.martingaleResetThreshold
-        ? ` (Next stake: ${Utils.formatCurrency(this.currentStake)})`
-        : ` (Resetting to base stake)`;
-      Utils.notify('Trade Lost', `Loss: ${Utils.formatCurrency(stake)}${martingaleMsg}`, 'error');  
+      Utils.notify('Trade Lost', `Loss: ${Utils.formatCurrency(stake)}`, 'error');  
       Utils.playSound('error');  
     }  
 
@@ -1027,7 +817,7 @@ class DerivBot {
   }  
 
   /**  
-   * Simulate trade (for testing) with martingale
+   * Simulate trade (for testing)  
    */  
   simulateTrade(prediction, stake) {  
     const actualDigit = this.tickBuffer[this.tickBuffer.length - 1].digit;  
@@ -1048,31 +838,23 @@ class DerivBot {
       prediction: prediction.finalPrediction,  
       actualDigit,  
       confidence: prediction.confidence,  
-      simulated: true,
-      martingaleActive: this.consecutiveLosses > 0,
-      martingaleLevel: this.consecutiveLosses,
-      initialStake: this.initialStake
+      simulated: true  
     };  
 
     Storage.saveTrade(trade);  
 
-    // Apply martingale logic
     if (result === 'loss') {  
-      this.applyMartingaleAfterLoss();
+      this.consecutiveLosses++;  
     } else {  
-      this.handleMartingaleAfterWin();
+      this.consecutiveLosses = 0;  
     }  
 
     this.updateStatsDisplay();  
     this.updateHistoryTable();  
 
-    const martingaleInfo = trade.martingaleActive 
-      ? ` (Martingale Level ${trade.martingaleLevel})` 
-      : '';
-
     Utils.notify(  
       result === 'win' ? 'Simulated Win' : 'Simulated Loss',  
-      `${result === 'win' ? 'Profit' : 'Loss'}: ${Utils.formatCurrency(Math.abs(profit))}${martingaleInfo}`,  
+      `${result === 'win' ? 'Profit' : 'Loss'}: ${Utils.formatCurrency(Math.abs(profit))}`,  
       result  
     );  
 
@@ -1080,12 +862,12 @@ class DerivBot {
   }  
 
   /**  
-   * Calculate stake with adaptive sizing (used when martingale is not active)
+   * Calculate stake with adaptive sizing  
    */  
-  calculateAdaptiveStake() {  
+  calculateStake() {  
     let stake = CONFIG.trading.baseStake;  
 
-    if (CONFIG.trading.adaptiveStaking && this.consecutiveLosses === 0) {  
+    if (CONFIG.trading.adaptiveStaking) {  
       const performance = Storage.getPerformance();  
       const winRate = performance.winRate / 100;  
 
@@ -1095,30 +877,17 @@ class DerivBot {
         const kelly = Utils.calculateKellyCriterion(winRate, 1.95, edge);  
         stake = CONFIG.trading.baseStake * (1 + kelly * 2); // Conservative Kelly  
       }  
+
+      // Smart martingale after loss
+      if (this.consecutiveLosses > 0 && this.consecutiveLosses <= CONFIG.trading.maxMartingaleStreak) {
+        stake *= Math.pow(CONFIG.trading.martingaleFactor, this.consecutiveLosses);
+      }
     }  
 
     // Enforce limits  
     stake = Math.max(CONFIG.trading.minStake, Math.min(stake, CONFIG.trading.maxStake));  
       
     return parseFloat(stake.toFixed(2));  
-  }
-
-  /**  
-   * Calculate stake - now uses martingale or adaptive
-   */  
-  calculateStake() {  
-    // If martingale is active (we have consecutive losses), use current martingale stake
-    if (this.martingaleEnabled && this.consecutiveLosses > 0) {
-      return this.currentStake;
-    }
-
-    // Otherwise, use adaptive staking if enabled
-    if (CONFIG.trading.adaptiveStaking) {
-      return this.calculateAdaptiveStake();
-    }
-
-    // Default to base stake
-    return CONFIG.trading.baseStake;
   }  
 
   /**  
@@ -1130,21 +899,12 @@ class DerivBot {
       return false;  
     }  
 
-    // Check if current stake exceeds maximum allowed
-    if (this.currentStake > CONFIG.trading.maxStake) {
-      this.showModal('warning', 'Stake Too High',
-        `Current stake ${Utils.formatCurrency(this.currentStake)} exceeds maximum allowed. Resetting.`);
-      this.resetMartingale();
-      return false;
-    }
-
-    // Check consecutive losses (in addition to martingale reset)
+    // Check consecutive losses  
     if (this.consecutiveLosses >= CONFIG.risk.maxConsecutiveLosses) {  
       this.showModal('warning','Risk Limit Reached',   
         `Max consecutive losses (${CONFIG.risk.maxConsecutiveLosses}) reached. Trading paused.`);  
       CONFIG.trading.autoTrade = false;  
-      document.getElementById('autoTrade').checked = false;
-      this.resetMartingale();
+      document.getElementById('autoTrade').checked = false;  
       return false;  
     }  
 
@@ -1153,8 +913,7 @@ class DerivBot {
       this.showModal('warning', 'Daily Loss Limit',   
         `Daily loss limit of ${Utils.formatCurrency(CONFIG.risk.maxDailyLoss)} reached. Trading paused.`);  
       CONFIG.trading.autoTrade = false;  
-      document.getElementById('autoTrade').checked = false;
-      this.resetMartingale();
+      document.getElementById('autoTrade').checked = false;  
       return false;  
     }  
 
@@ -1168,10 +927,7 @@ class DerivBot {
     this.emergencyStop = true;  
     this.shouldReconnect = false;
     CONFIG.trading.autoTrade = false;  
-    document.getElementById('autoTrade').checked = false;
-    
-    // Reset martingale on emergency stop
-    this.resetMartingale();
+    document.getElementById('autoTrade').checked = false;  
       
     this.showModal('warning', 'Emergency Stop Activated',   
       'All trading has been stopped. Reconnect to resume.');  
@@ -1199,7 +955,7 @@ class DerivBot {
   }
 
   /**  
-   * Update stats display with martingale info
+   * Update stats display  
    */  
   updateStatsDisplay() {  
     const performance = Storage.getPerformance();  
@@ -1211,15 +967,12 @@ class DerivBot {
     document.getElementById('totalPnL').textContent = Utils.formatCurrency(performance.totalPnL);  
     document.getElementById('accuracy').textContent = `${performance.winRate.toFixed(1)}%`;  
 
-    // Update martingale display
-    this.updateMartingaleDisplay();
-
     // Update chart  
     this.updateModelChart();  
   }  
 
   /**  
-   * Update history table with martingale info
+   * Update history table  
    */  
   updateHistoryTable() {  
     const filterType = document.getElementById('filterType')?.value || 'all';  
@@ -1233,16 +986,10 @@ class DerivBot {
     tbody.innerHTML = '';  
 
     trades.slice(-50).reverse().forEach(trade => {  
-      const row = tbody.insertRow();
-      
-      // Add martingale indicator
-      const martingaleIndicator = trade.martingaleActive 
-        ? `<span style="color: #f59e0b; font-weight: bold;" title="Martingale Level ${trade.martingaleLevel}">⚡${trade.martingaleLevel}</span> `
-        : '';
-      
+      const row = tbody.insertRow();  
       row.innerHTML = `  
         <td>${Utils.formatDateTime(trade.timestamp / 1000)}</td>  
-        <td>${martingaleIndicator}${trade.contractType || trade.prediction}</td>  
+        <td>${trade.contractType || trade.prediction}</td>  
         <td>${Utils.formatCurrency(trade.stake)}</td>  
         <td>${trade.prediction}</td>  
         <td><span class="trade-result ${trade.result}">${trade.result.toUpperCase()}</span></td>  
@@ -1448,8 +1195,7 @@ class DerivBot {
     this.showModal('confirm', 'Clear History',   
       'Are you sure you want to clear all trade history? This cannot be undone.',  
       () => {  
-        Storage.clearAll();
-        this.resetMartingale();
+        Storage.clearAll();  
         this.updateStatsDisplay();  
         this.updateHistoryTable();  
         Utils.notify('History Cleared', 'All data has been cleared', 'success');  
@@ -1486,9 +1232,6 @@ class DerivBot {
       document.getElementById('minConfidence').value = settings.minConfidence;  
       document.getElementById('minConfidenceValue').textContent = `${settings.minConfidence}%`;  
 
-      // Reset martingale when changing strategy
-      this.resetMartingale();
-
       Utils.notify('Strategy Applied', `${preset.charAt(0).toUpperCase() + preset.slice(1)} strategy activated`, 'success');  
     }  
   }  
@@ -1502,8 +1245,208 @@ class DerivBot {
     });  
     document.querySelectorAll('.nav-btn').forEach(btn => {  
       btn.classList.remove('active');  
+    });  
+
+    document.getElementById(`${viewName}View`).classList.add('active');  
+    event.target.classList.add('active');  
+
+    // Load view-specific data  
+    if (viewName === 'history') {  
+      this.updateHistoryTable();  
+    } else if (viewName === 'models') {  
+      this.updateModelAnalytics();  
+    }  
+  }  
+
+  /**  
+   * Update model analytics view  
+   */  
+  updateModelAnalytics() {  
+    const models = Storage.getModels();  
+    const container = document.getElementById('modelAnalytics');  
+      
+    if (!container) return;  
+
+    container.innerHTML = '';  
+
+    Object.entries(models).forEach(([name, data]) => {  
+      const statDiv = document.createElement('div');  
+      statDiv.className = 'model-stat';  
+      statDiv.innerHTML = `
+        <h4>${name.charAt(0).toUpperCase() + name.slice(1)}</h4>
+        <div class="model-stat-value">${data.accuracy?.toFixed(1) || 0}%</div>
+        <div style="font-size: 0.875rem; color: var(--text-secondary); margin-top: 0.5rem;">
+          ${data.predictions || 0} predictions | ${data.correct || 0} correct
+        </div>
+      `;
+      container.appendChild(statDiv);
     });
-    wsReadyState: this.ws ? this.ws.readyState : null
+  }
+
+  /** 
+   * Toggle theme 
+   */ 
+  toggleTheme() { 
+    const currentTheme = document.documentElement.getAttribute('data-theme') || 'light'; 
+    const newTheme = currentTheme === 'light' ? 'dark' : 'light'; 
+
+    document.documentElement.setAttribute('data-theme', newTheme); 
+    CONFIG.ui.theme = newTheme; 
+    Storage.saveSettings(CONFIG); 
+
+    Utils.notify('Theme Changed', `Switched to ${newTheme} mode`, 'info'); 
+  } 
+
+  /** 
+   * Toggle notifications 
+   */ 
+  toggleNotifications() { 
+    CONFIG.ui.notificationsEnabled = !CONFIG.ui.notificationsEnabled; 
+    Storage.saveSettings(CONFIG); 
+
+    const status = CONFIG.ui.notificationsEnabled ? 'enabled' : 'disabled'; 
+    Utils.notify('Notifications', `Notifications ${status}`, 'info'); 
+  } 
+
+  /** 
+   * Show modal 
+   */ 
+  showModal(type, title, message, confirmCallback = null) { 
+    const modal = document.getElementById('alertModal'); 
+    const modalIcon = document.getElementById('modalIcon'); 
+    const modalTitle = document.getElementById('modalTitle'); 
+    const modalMessage = document.getElementById('modalMessage'); 
+    const confirmBtn = document.getElementById('modalConfirm'); 
+    const cancelBtn = document.getElementById('modalCancel'); 
+
+    // Set icon based on type 
+    const icons = { 
+      success: '✅', 
+      error: '❌', 
+      warning: '⚠️', 
+      info: 'ℹ️', 
+      confirm: '❓' 
+    }; 
+    modalIcon.textContent = icons[type] || icons.info; 
+
+    modalTitle.textContent = title; 
+    modalMessage.textContent = message; 
+
+    // Handle confirm callback 
+    if (confirmCallback) { 
+      this.modalConfirmCallback = confirmCallback; 
+      cancelBtn.style.display = 'block'; 
+      confirmBtn.textContent = 'Confirm'; 
+    } else { 
+      this.modalConfirmCallback = null; 
+      cancelBtn.style.display = 'none'; 
+      confirmBtn.textContent = 'OK'; 
+    } 
+
+    modal.classList.add('active'); 
+  } 
+
+  /** 
+   * Hide modal 
+   */ 
+  hideModal() { 
+    const modal = document.getElementById('alertModal'); 
+    modal.classList.remove('active'); 
+    this.modalConfirmCallback = null; 
+  } 
+
+  /** 
+   * Handle modal confirm 
+   */ 
+  handleModalConfirm() { 
+    if (this.modalConfirmCallback) { 
+      this.modalConfirmCallback(); 
+    } 
+    this.hideModal(); 
+  } 
+
+  /** 
+   * Show loading overlay 
+   */ 
+  showLoading(message = 'Loading...') { 
+    const overlay = document.getElementById('loadingOverlay'); 
+    overlay.querySelector('p').textContent = message; 
+    overlay.classList.add('active'); 
+  } 
+
+  /** 
+   * Hide loading overlay 
+   */ 
+  hideLoading() { 
+    const overlay = document.getElementById('loadingOverlay'); 
+    overlay.classList.remove('active'); 
+  } 
+
+  /** 
+   * Load saved settings 
+   */ 
+  loadSavedSettings() { 
+    const savedSettings = Storage.getSettings(); 
+    if (savedSettings && savedSettings.trading) { 
+      Object.assign(CONFIG, savedSettings); 
+
+      // Apply to UI   
+      document.getElementById('baseStake').value = CONFIG.trading.baseStake;   
+      document.getElementById('minConfidence').value = CONFIG.trading.minConfidence;   
+      document.getElementById('minConfidenceValue').textContent = `${CONFIG.trading.minConfidence}%`;   
+      document.getElementById('autoTrade').checked = CONFIG.trading.autoTrade;   
+      document.getElementById('simulationMode').checked = CONFIG.trading.simulationMode;   
+      document.getElementById('adaptiveStaking').checked = CONFIG.trading.adaptiveStaking;   
+
+      // Apply theme   
+      document.documentElement.setAttribute('data-theme', CONFIG.ui.theme); 
+
+    } 
+  } 
+
+  /** 
+   * Update UI with current state 
+   */ 
+  updateUI() { 
+    this.updateStatsDisplay(); 
+    this.updateHistoryTable(); 
+
+    // Update trade controls state 
+    const autoTradeLabel = document.getElementById('autoTrade').parentElement; 
+    if (CONFIG.trading.autoTrade) { 
+      autoTradeLabel.style.fontWeight = 'bold'; 
+    } else { 
+      autoTradeLabel.style.fontWeight = 'normal'; 
+    } 
+
+    // Update simulation mode indicator 
+    if (CONFIG.trading.simulationMode) { 
+      document.querySelector('.brand-text').textContent = 'Deriv AI Bot (SIMULATION)'; 
+    } else { 
+      document.querySelector('.brand-text').textContent = 'Deriv AI Bot'; 
+    } 
+    
+    // Update connection health indicator if element exists
+    const healthIndicator = document.getElementById('connectionHealth');
+    if (healthIndicator) {
+      healthIndicator.textContent = `${this.connectionHealth}%`;
+      healthIndicator.style.color = this.connectionHealth > 70 ? '#10b981' : 
+                                    this.connectionHealth > 30 ? '#f59e0b' : '#ef4444';
+    }
+  } 
+
+  /**
+   * Get connection status info
+   */
+  getConnectionStatus() {
+    return {
+      isConnected: this.isConnected,
+      isReconnecting: this.isReconnecting,
+      reconnectAttempts: this.reconnectAttempts,
+      maxReconnectAttempts: this.maxReconnectAttempts,
+      connectionHealth: this.connectionHealth,
+      shouldReconnect: this.shouldReconnect,
+      wsReadyState: this.ws ? this.ws.readyState : null
     };
   }
 
@@ -1528,18 +1471,7 @@ class DerivBot {
     // Destroy charts 
     Object.values(this.charts).forEach(chart => { 
       if (chart) chart.destroy(); 
-    });
-    
-    // Save final martingale state
-    const finalState = {
-      ...CONFIG,
-      martingale: {
-        initialStake: this.initialStake,
-        lastConsecutiveLosses: this.consecutiveLosses,
-        enabled: this.martingaleEnabled
-      }
-    };
-    Storage.saveSettings(finalState);
+    }); 
 
     Utils.log('Bot destroyed', 'info'); 
   } 
@@ -1550,20 +1482,9 @@ let bot;
 document.addEventListener('DOMContentLoaded', () => { 
   bot = new DerivBot(); 
   
-  // Auto-save settings periodically (including martingale state)
+  // Auto-save settings periodically 
   setInterval(() => { 
-    const currentState = {
-      ...CONFIG,
-      martingale: {
-        initialStake: bot.initialStake,
-        currentStake: bot.currentStake,
-        consecutiveLosses: bot.consecutiveLosses,
-        enabled: bot.martingaleEnabled,
-        multiplier: bot.martingaleMultiplier,
-        resetThreshold: bot.martingaleResetThreshold
-      }
-    };
-    Storage.saveSettings(currentState); 
+    Storage.saveSettings(CONFIG); 
   }, 60000); // Every minute 
 
   // Reset daily loss at midnight 
@@ -1574,14 +1495,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const msUntilMidnight = tomorrow.getTime() - now.getTime(); 
 
   setTimeout(() => { 
-    bot.dailyLoss = 0;
-    bot.resetMartingale(); // Reset martingale at midnight
-    Utils.notify('Daily Reset', 'Daily loss counter and martingale have been reset', 'info'); 
+    bot.dailyLoss = 0; 
+    Utils.notify('Daily Reset', 'Daily loss counter has been reset', 'info'); 
 
     // Set up daily interval   
     setInterval(() => {   
-      bot.dailyLoss = 0;
-      bot.resetMartingale();
+      bot.dailyLoss = 0;   
     }, 86400000); // 24 hours 
 
   }, msUntilMidnight);
@@ -1593,41 +1512,16 @@ document.addEventListener('DOMContentLoaded', () => {
       
       // Log connection status periodically for debugging
       if (bot.isConnected) {
-        Utils.log('Connection health check', 'debug', {
-          ...bot.getConnectionStatus(),
-          martingale: bot.getMartingaleStats()
-        });
+        Utils.log('Connection health check', 'debug', bot.getConnectionStatus());
       }
     }
   }, 10000); // Every 10 seconds
-  
-  // Log martingale status every minute when active
-  setInterval(() => {
-    if (bot && bot.consecutiveLosses > 0) {
-      const stats = bot.getMartingaleStats();
-      Utils.log('Martingale Status Update', 'info', stats);
-    }
-  }, 60000); // Every minute
 }); 
 
 // Cleanup on page unload 
 window.addEventListener('beforeunload', () => { 
   if (bot) { 
-    // Save final state including martingale
-    const finalState = {
-      ...CONFIG,
-      martingale: {
-        initialStake: bot.initialStake,
-        currentStake: bot.currentStake,
-        consecutiveLosses: bot.consecutiveLosses,
-        consecutiveWins: bot.consecutiveWins,
-        enabled: bot.martingaleEnabled,
-        multiplier: bot.martingaleMultiplier,
-        resetThreshold: bot.martingaleResetThreshold,
-        history: bot.martingaleHistory.slice(-10) // Save last 10 entries
-      }
-    };
-    Storage.saveSettings(finalState); 
+    Storage.saveSettings(CONFIG); 
     bot.destroy(); 
   } 
 }); 
@@ -1645,11 +1539,6 @@ document.addEventListener('visibilitychange', () => {
         Utils.log('Connection lost while tab was hidden, attempting reconnect', 'warn');
         bot.forceReconnect('Tab regained focus, connection lost');
       }
-    }
-    
-    // Update martingale display when tab becomes visible
-    if (bot) {
-      bot.updateMartingaleDisplay();
     }
   } 
 }); 
@@ -1694,146 +1583,5 @@ window.addEventListener('unhandledrejection', (event) => {
 
 // Export bot instance for debugging 
 if (typeof window !== 'undefined') { 
-  window.DerivBot = bot;
-  
-  // Expose martingale controls for debugging
-  window.getMartingaleStats = () => bot ? bot.getMartingaleStats() : null;
-  window.resetMartingale = () => bot ? bot.resetMartingale() : null;
-  window.getMartingaleHistory = () => bot ? bot.martingaleHistory : [];
-}
-
-// Custom event listeners for martingale events
-window.addEventListener('tradeCompleted', (event) => {
-  const trade = event.detail;
-  
-  // Log martingale progression
-  if (bot && trade.martingaleActive) {
-    Utils.log('Martingale Trade Completed', 'info', {
-      result: trade.result,
-      level: trade.martingaleLevel,
-      stake: trade.stake,
-      profit: trade.profit,
-      nextStake: bot.currentStake
-    });
-  }
-  
-  // Check if martingale reset occurred
-  if (bot && bot.consecutiveLosses === 0 && trade.result === 'win' && trade.martingaleActive) {
-    Utils.log('Martingale Cycle Completed Successfully', 'success', {
-      recovered: true,
-      finalProfit: trade.profit
-    });
-  }
-});
-
-// Periodic martingale health check
-setInterval(() => {
-  if (bot && bot.martingaleEnabled && bot.consecutiveLosses > 0) {
-    const stats = bot.getMartingaleStats();
-    
-    // Warn if approaching reset threshold
-    if (stats.consecutiveLosses >= stats.resetThreshold - 1) {
-      Utils.log('Martingale approaching reset threshold', 'warn', stats);
-      
-      if (CONFIG.ui.notificationsEnabled) {
-        Utils.notify(
-          'Martingale Warning', 
-          `Next loss will reset stake to ${Utils.formatCurrency(bot.initialStake)}`, 
-          'warning'
-        );
-      }
-    }
-    
-    // Check if current stake is safe
-    const potentialLoss = stats.currentStake;
-    const remainingDailyBudget = CONFIG.risk.maxDailyLoss - bot.dailyLoss;
-    
-    if (potentialLoss > remainingDailyBudget * 0.5) {
-      Utils.log('Martingale stake approaching daily loss limit', 'warn', {
-        currentStake: stats.currentStake,
-        remainingBudget: remainingDailyBudget,
-        percentage: (potentialLoss / remainingDailyBudget * 100).toFixed(1)
-      });
-    }
-  }
-}, 30000); // Every 30 seconds
-
-// Add console helpers for martingale debugging
-if (typeof window !== 'undefined') {
-  window.martingaleDebug = {
-    getStats: () => bot ? bot.getMartingaleStats() : null,
-    getHistory: () => bot ? bot.martingaleHistory : [],
-    reset: () => bot ? bot.resetMartingale() : null,
-    setMultiplier: (multiplier) => {
-      if (bot && multiplier > 0) {
-        bot.martingaleMultiplier = multiplier;
-        Utils.log(`Martingale multiplier set to ${multiplier}`, 'info');
-        return true;
-      }
-      return false;
-    },
-    setResetThreshold: (threshold) => {
-      if (bot && threshold > 0) {
-        bot.martingaleResetThreshold = threshold;
-        Utils.log(`Martingale reset threshold set to ${threshold}`, 'info');
-        return true;
-      }
-      return false;
-    },
-    toggle: () => {
-      if (bot) {
-        bot.martingaleEnabled = !bot.martingaleEnabled;
-        if (!bot.martingaleEnabled) {
-          bot.resetMartingale();
-        }
-        Utils.log(`Martingale ${bot.martingaleEnabled ? 'enabled' : 'disabled'}`, 'info');
-        return bot.martingaleEnabled;
-      }
-      return null;
-    },
-    simulate: (results) => {
-      // Simulate a series of wins/losses to test martingale
-      if (!bot || !Array.isArray(results)) {
-        console.error('Invalid input. Usage: martingaleDebug.simulate(["win", "loss", "loss", "win"])');
-        return;
-      }
-      
-      console.log('Starting martingale simulation...');
-      const initialStake = bot.currentStake;
-      let totalProfit = 0;
-      
-      results.forEach((result, index) => {
-        const stake = bot.currentStake;
-        console.log(`Trade ${index + 1}: ${result.toUpperCase()} - Stake: ${Utils.formatCurrency(stake)}`);
-        
-        if (result === 'loss') {
-          totalProfit -= stake;
-          bot.applyMartingaleAfterLoss();
-        } else if (result === 'win') {
-          const payout = stake * 1.95;
-          const profit = payout - stake;
-          totalProfit += profit;
-          bot.handleMartingaleAfterWin();
-        }
-      });
-      
-      console.log('Simulation complete:');
-      console.log(`Initial stake: ${Utils.formatCurrency(initialStake)}`);
-      console.log(`Final stake: ${Utils.formatCurrency(bot.currentStake)}`);
-      console.log(`Total P&L: ${Utils.formatCurrency(totalProfit)}`);
-      console.log(`Current consecutive losses: ${bot.consecutiveLosses}`);
-    }
-  };
-  
-  // Log available debug commands
-  console.log('%c🤖 Deriv Bot Enhanced with Smart Martingale', 'font-size: 16px; font-weight: bold; color: #667eea;');
-  console.log('%cMartingale Debug Commands Available:', 'font-size: 12px; font-weight: bold; color: #10b981;');
-  console.log('  martingaleDebug.getStats()        - Get current martingale statistics');
-  console.log('  martingaleDebug.getHistory()      - View martingale progression history');
-  console.log('  martingaleDebug.reset()           - Manually reset martingale to base stake');
-  console.log('  martingaleDebug.setMultiplier(n)  - Change multiplier (default: 2.0)');
-  console.log('  martingaleDebug.setResetThreshold(n) - Change reset threshold (default: 4)');
-  console.log('  martingaleDebug.toggle()          - Enable/disable martingale');
-  console.log('  martingaleDebug.simulate([...])   - Simulate win/loss sequence');
-  console.log('  Example: martingaleDebug.simulate(["loss", "loss", "loss", "win"])');
+  window.DerivBot = bot; 
 }
