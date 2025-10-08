@@ -42,7 +42,7 @@ class DerivBot {
     this.setupCharts();  
     this.loadSavedSettings();  
     CONFIG.trading.martingaleFactor = CONFIG.trading.martingaleFactor || 2.0;
-    CONFIG.trading.maxMartingaleStreak = CONFIG.trading.maxMartingaleStreak || 3;
+    CONFIG.trading.maxMartingaleStreak = CONFIG.trading.maxMartingaleStreak || 5;
     this.updateUI();  
     Utils.requestNotificationPermission();  
     Utils.log('Deriv Bot ready', 'info');  
