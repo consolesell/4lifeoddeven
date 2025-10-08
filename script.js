@@ -41,8 +41,6 @@ class DerivBot {
     this.setupEventListeners();  
     this.setupCharts();  
     this.loadSavedSettings();  
-    CONFIG.trading.martingaleFactor = CONFIG.trading.martingaleFactor || 2.0;
-    CONFIG.trading.maxMartingaleStreak = CONFIG.trading.maxMartingaleStreak || 5;
     this.updateUI();  
     Utils.requestNotificationPermission();  
     Utils.log('Deriv Bot ready', 'info');  
@@ -674,7 +672,7 @@ class DerivBot {
     }  
 
     // Send buy request  
-    const contractType = prediction.finalPrediction === 'EVEN' ? 'DIGITODD' : 'DIGITEVEN';  
+    const contractType = prediction.finalPrediction === 'EVEN' ? 'DIGITEVEN' : 'DIGITODD';  
       
     this.showLoading('Placing trade...');  
 
@@ -688,7 +686,7 @@ class DerivBot {
           basis: 'stake',  
           contract_type: contractType,  
           currency: 'USD',  
-          duration: CONFIG.trading.contractDuration,  
+          duration: prediction.duration || CONFIG.trading.contractDuration,  
           duration_unit: 't',  
           symbol: this.currentSymbol  
         }  
@@ -876,12 +874,10 @@ class DerivBot {
         const edge = winRate - 0.5;  
         const kelly = Utils.calculateKellyCriterion(winRate, 1.95, edge);  
         stake = CONFIG.trading.baseStake * (1 + kelly * 2); // Conservative Kelly  
+      } else if (this.consecutiveLosses > 2) {  
+        // Reduce stake after losses  
+        stake = CONFIG.trading.baseStake * 0.5;  
       }  
-
-      // Smart martingale after loss
-      if (this.consecutiveLosses > 0 && this.consecutiveLosses <= CONFIG.trading.maxMartingaleStreak) {
-        stake *= Math.pow(CONFIG.trading.martingaleFactor, this.consecutiveLosses);
-      }
     }  
 
     // Enforce limits  
