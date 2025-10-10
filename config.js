@@ -19,6 +19,8 @@ const CONFIG = {
         contractType: 'DIGITEVEN', // or 'DIGITODD'
         minConfidence: 60, // percentage
         autoTrade: true,
+        martingaleFactor: 2.0,
+        maxMartingaleStreak: 3,
         simulationMode: false,
         adaptiveStaking: false
     },
