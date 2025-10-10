@@ -20,7 +20,7 @@ const CONFIG = {
         minConfidence: 60, // percentage
         autoTrade: true,
         martingaleFactor: 2.0,
-        maxMartingaleStreak: 3,
+        maxMartingaleStreak: 10,
         simulationMode: false,
         adaptiveStaking: false
     },
@@ -29,7 +29,7 @@ const CONFIG = {
     risk: {
         maxDailyLoss: 50,
         maxConsecutiveLosses: 5,
-        cooldownPeriod: 5, // seconds
+        cooldownPeriod: 15, // seconds
         stopLossPercentage: 10,
         takeProfitPercentage: 20,
         maxDrawdown: 30
@@ -132,8 +132,8 @@ const STRATEGY_PRESETS = {
     },
     moderate: {
         minConfidence: 60,
-        maxConsecutiveLosses: 5,
-        cooldownPeriod: 5,
+        maxConsecutiveLosses: 10,
+        cooldownPeriod: 15,
         adaptiveStaking: true,
         models: {
             statistical: { weight: 1.0 },
