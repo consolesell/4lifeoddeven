@@ -30,7 +30,7 @@ class DerivBot {
     this.missedPongs = 0;
     this.maxMissedPongs = 3;
     this.martingaleFactor: 2.0,
-    this.maxMartingaleStreak: 4,
+    this.maxMartingaleStreak: 10,
 
     this.init();  
   }  
