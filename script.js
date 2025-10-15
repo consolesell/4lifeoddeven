@@ -29,6 +29,8 @@ class DerivBot {
     this.connectionHealth = 100;
     this.missedPongs = 0;
     this.maxMissedPongs = 3;
+    this.martingaleFactor: 2.0,
+    this.maxMartingaleStreak: 4,
 
     this.init();  
   }  
@@ -672,7 +674,7 @@ class DerivBot {
     }  
 
     // Send buy request  
-    const contractType = prediction.finalPrediction === 'EVEN' ? 'DIGITODD' : 'DIGITEVEN';  
+    const contractType = prediction.finalPrediction === 'EVEN' ? 'DIGITEVEN' : 'DIGITODD';  
       
     this.showLoading('Placing trade...');  
 
