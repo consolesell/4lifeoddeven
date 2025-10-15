@@ -29,8 +29,8 @@ class DerivBot {
     this.connectionHealth = 100;
     this.missedPongs = 0;
     this.maxMissedPongs = 3;
-    this.martingaleFactor: 2.0,
-    this.maxMartingaleStreak: 10,
+    this.martingaleFactor: 2.0;
+    this.maxMartingaleStreak: 10;
 
     this.init();  
   }  
