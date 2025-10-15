@@ -865,6 +865,11 @@ class DerivBot {
   calculateStake() {  
     let stake = CONFIG.trading.baseStake;  
 
+    // Ensure CONFIG.trading.martingale exists and has defaults
+    const martingale = (CONFIG.trading.martingale = CONFIG.trading.martingale || {});
+    const martingaleEnabled = Boolean(martingale.enabled);
+    const multiplier = parseFloat(martingale.multiplier) > 1 ? parseFloat(martingale.multiplier) : 2;
+
     if (CONFIG.trading.adaptiveStaking) {  
       const performance = Storage.getPerformance();  
       const winRate = performance.winRate / 100;  
@@ -875,12 +880,37 @@ class DerivBot {
         const kelly = Utils.calculateKellyCriterion(winRate, 1.95, edge);  
         stake = CONFIG.trading.baseStake * (1 + kelly * 2); // Conservative Kelly  
       } else if (this.consecutiveLosses > 2) {  
-        // Reduce stake after losses  
+        // Reduce stake after repeated losses if adaptive staking is configured that way
         stake = CONFIG.trading.baseStake * 0.5;  
       }  
     }  
 
-    // Enforce limits  
+    // Martingale logic: increase stake after losses to recover, capped by maxStake
+    if (martingaleEnabled && this.consecutiveLosses > 0) {
+      // Compute maximum levels allowed by maxStake and multiplier
+      const maxStake = CONFIG.trading.maxStake || stake * Math.pow(multiplier, this.consecutiveLosses);
+      let maxLevels = Infinity;
+      if (CONFIG.trading.baseStake > 0 && multiplier > 1) {
+        // floor(log(maxStake/baseStake)/log(multiplier))
+        maxLevels = Math.floor(Math.log(maxStake / CONFIG.trading.baseStake) / Math.log(multiplier));
+      }
+
+      // If CONFIG.trading.martingale.maxLevels is specified, respect it
+      if (Number.isFinite(parseInt(martingale.maxLevels))) {
+        maxLevels = Math.min(maxLevels, parseInt(martingale.maxLevels));
+      }
+
+      // Use the smaller of consecutiveLosses and allowed maxLevels
+      const levels = Math.min(this.consecutiveLosses, Math.max(0, maxLevels));
+
+      // Calculate proposed martingale stake
+      const martingaleStake = CONFIG.trading.baseStake * Math.pow(multiplier, levels);
+      Utils.log('Martingale calculation', 'debug', { base: CONFIG.trading.baseStake, multiplier, levels, martingaleStake });
+
+      stake = Math.max(stake, martingaleStake);
+    }
+
+    // Enforce limits
     stake = Math.max(CONFIG.trading.minStake, Math.min(stake, CONFIG.trading.maxStake));  
       
     return parseFloat(stake.toFixed(2));  
