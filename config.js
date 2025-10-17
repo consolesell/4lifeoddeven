@@ -14,7 +14,7 @@ const CONFIG = {
     trading: {
         baseStake: 1,
         minStake: 1,
-        maxStake: 100,
+        maxStake: 1500,
         contractDuration: 1, // ticks
         contractType: 'DIGITEVEN', // or 'DIGITODD'
         minConfidence: 60, // percentage
