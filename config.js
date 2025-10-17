@@ -20,11 +20,30 @@ const CONFIG = {
         minConfidence: 60, // percentage
         autoTrade: true,
         simulationMode: false,
-        martingale: true,  // Enable/disable the martingale strategy
-        martingaleFactor: 2,  // Multiplier (e.g., 2 doubles the stake after each loss; try 2.1 for a slight edge)
-        initialStake: baseStake,  // Starting bet amount (in your base unit, like USD or crypto)
-        maxMartingaleSteps: 3,  // Optional: Limit the number of consecutive doublings to avoid blowing the account
-    // ...rest of your config
+
+        // Martingale configuration (object form expected by script.js)
+        martingale: {
+            // Enable/disable martingale stake increases after losses
+            enabled: true,
+
+            // Multiplier applied for each loss level (must be > 1).
+            // Example: 2 means stake doubles after each loss (baseStake * 2^level).
+            // Use fractional multipliers like 1.5 for less aggressive recovery.
+            multiplier: 2.0,
+
+            // Optional: maximum martingale "levels" to apply (integer).
+            // If omitted, the code will compute a safe max based on maxStake.
+            // You may specify as a number or string; code uses parseInt().
+            maxLevels: 3
+        },
+
+        // Backwards-compatibility fields (not used by the new logic, kept for reference)
+        // NOTE: The runtime now expects CONFIG.trading.martingale to be an object.
+        martingaleFactor: 2,   // legacy field — kept for traceability
+        initialStake: 0.35,    // legacy name mapping to baseStake
+        maxMartingaleSteps: 3, // legacy cap; use martingale.maxLevels instead
+
+        // adaptive staking
         adaptiveStaking: false
     },
 
