@@ -20,6 +20,11 @@ const CONFIG = {
         minConfidence: 60, // percentage
         autoTrade: true,
         simulationMode: false,
+        martingale: true,  // Enable/disable the martingale strategy
+        martingaleFactor: 2,  // Multiplier (e.g., 2 doubles the stake after each loss; try 2.1 for a slight edge)
+        initialStake: baseStake,  // Starting bet amount (in your base unit, like USD or crypto)
+        maxMartingaleSteps: 3,  // Optional: Limit the number of consecutive doublings to avoid blowing the account
+    // ...rest of your config
         adaptiveStaking: false
     },
 
