@@ -12,8 +12,8 @@ const CONFIG = {
 
     // Trading Configuration
     trading: {
-        baseStake: 0.35,
-        minStake: 0.35,
+        baseStake: 1,
+        minStake: 1,
         maxStake: 100,
         contractDuration: 1, // ticks
         contractType: 'DIGITEVEN', // or 'DIGITODD'
@@ -39,8 +39,8 @@ const CONFIG = {
 
         // Backwards-compatibility fields (not used by the new logic, kept for reference)
         // NOTE: The runtime now expects CONFIG.trading.martingale to be an object.
-        martingaleFactor: 2,   // legacy field — kept for traceability
-        initialStake: 0.35,    // legacy name mapping to baseStake
+        martingaleFactor: 2.5,   // legacy field — kept for traceability
+        initialStake: 1,    // legacy name mapping to baseStake
         maxMartingaleSteps: 3, // legacy cap; use martingale.maxLevels instead
 
         // adaptive staking
