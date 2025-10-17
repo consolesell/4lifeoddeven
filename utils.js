@@ -196,7 +196,7 @@ const Utils = {
         if (CONFIG.logging.level === 'debug') {
             console.log(`Kelly calculation: winRate=${winRate}, profitFactor=${profitFactor}, edge=${edge}, kelly=${kelly.toFixed(4)}`);
         }
-        return Math.max(0, Math.min(kelly, 0.25)); // Cap at 25% of bankroll
+        return Math.max(0, Math.min(kelly, 0.85)); // Cap at 25% of bankroll
     },
 
     /**
